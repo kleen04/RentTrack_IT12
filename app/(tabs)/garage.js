@@ -25,6 +25,7 @@ const FILTERS = ["All", "Available", "Reserved", "Rented", "Maintenance"];
 
 export default function Garage() {
   const [activeFilterTab, setActiveFilterTab] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
   const [vehicles, setVehicles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const db = useSQLiteContext();
@@ -54,14 +55,25 @@ export default function Garage() {
     };
   }, [db]);
 
-  const filteredVehicles =
-    activeFilterTab === "All"
-      ? vehicles
-      : vehicles.filter(
-          (vehicle) =>
-            (vehicle.status || "AVAILABLE").toUpperCase() ===
-            activeFilterTab.toUpperCase()
-        );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const matchesStatus =
+      activeFilterTab === "All" ||
+      (vehicle.status || "AVAILABLE").toUpperCase() ===
+        activeFilterTab.toUpperCase();
+    const searchableText = [
+      vehicle.brand,
+      vehicle.name,
+      vehicle.model,
+      vehicle.vehicleType,
+      vehicle.plateNumber,
+      vehicle.status,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return matchesStatus && searchableText.includes(normalizedSearch);
+  });
 
   const availableCount = vehicles.filter(
     (vehicle) => vehicle.status === "AVAILABLE"
@@ -113,7 +125,11 @@ export default function Garage() {
         </View>
 
         
-        <SearchBar placeholder="Search a vehicle" />
+        <SearchBar
+          placeholder="Search a vehicle"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
 
         
         <View style={styles.filters}>
@@ -169,7 +185,11 @@ export default function Garage() {
             />
           ))
         ) : (
-          <Text style={styles.emptyText}>No vehicles found.</Text>
+          <Text style={styles.emptyText}>
+            {normalizedSearch
+              ? "No vehicles match your search."
+              : "No vehicles found."}
+          </Text>
         )}
       </ScrollView>
     </View>

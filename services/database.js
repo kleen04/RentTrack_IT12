@@ -1224,6 +1224,27 @@ export function getVehicleUsageReportRows(db, startDate, endDate) {
   );
 }
 
+export function getPaidPaymentReportRows(db, startDate, endDate) {
+  const start = new Date(startDate).toISOString();
+  const end = new Date(endDate).toISOString();
+  return db.getAllAsync(
+    `SELECT
+       payments.id AS paymentId,
+       payments.amount,
+       COALESCE(payments.paid_at, payments.created_at) AS paidAt,
+       vehicles.vehicle_type AS vehicleType
+     FROM payments
+     JOIN bookings ON bookings.id = payments.booking_id
+     JOIN vehicles ON vehicles.id = bookings.vehicle_id
+     WHERE payments.status = 'PAID'
+       AND datetime(COALESCE(payments.paid_at, payments.created_at)) >= datetime(?)
+       AND datetime(COALESCE(payments.paid_at, payments.created_at)) < datetime(?)
+     ORDER BY paidAt`,
+    start,
+    end
+  );
+}
+
 export function getBookings(db) {
   return db.getAllAsync(`
     SELECT
@@ -1293,6 +1314,8 @@ export async function getMonthlyReportData(db, monthStart) {
     previousUtilizationBookings,
     incomeBookings,
     previousIncomeBookings,
+    receivedPayments,
+    previousReceivedPayments,
     customerCounts,
     fleetRow,
   ] = await Promise.all([
@@ -1340,6 +1363,8 @@ export async function getMonthlyReportData(db, monthStart) {
       previousStart,
       previousEnd
     ),
+    getPaidPaymentReportRows(db, monthStart, nextMonthStart),
+    getPaidPaymentReportRows(db, previousMonthStart, monthStart),
     db.getAllAsync(
       `SELECT substr(created_at, 1, 7) AS monthKey, COUNT(*) AS customerCount
        FROM customers
@@ -1364,6 +1389,8 @@ export async function getMonthlyReportData(db, monthStart) {
     previousUtilizationBookings,
     incomeBookings,
     previousIncomeBookings,
+    receivedPayments,
+    previousReceivedPayments,
     customerCount: customerCountByMonth[currentKey] || 0,
     previousCustomerCount: customerCountByMonth[previousKey] || 0,
     fleetCount: fleetRow?.fleetCount || 0,

@@ -11,6 +11,7 @@ import { Colors } from "../../constants/colors";
 export default function Customers() {
   const db = useSQLiteContext();
   const [customers, setCustomers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -43,6 +44,15 @@ export default function Customers() {
     };
   }, [db]);
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredCustomers = customers.filter((customer) =>
+    [customer.name, customer.phone, customer.email]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedSearch)
+  );
+
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -57,15 +67,19 @@ export default function Customers() {
             <Text style={styles.addText}>+</Text>
           </TouchableOpacity>
         </View>
-        <SearchBar placeholder="Search customer" />
+        <SearchBar
+          placeholder="Search customer"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ALL CUSTOMERS</Text>
-          <Text style={styles.count}>{String(customers.length).padStart(2, "0")} CUSTOMERS</Text>
+          <Text style={styles.count}>{String(filteredCustomers.length).padStart(2, "0")} CUSTOMERS</Text>
         </View>
         <View style={styles.list}>
           {isLoading && <Text style={styles.message}>Loading customer records…</Text>}
           {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
-          {customers.map((customer) => (
+          {filteredCustomers.map((customer) => (
             <CustomerCard
               key={customer.id}
               customer={customer}
@@ -77,8 +91,12 @@ export default function Customers() {
               }
             />
           ))}
-          {!isLoading && !loadError && !customers.length && (
-            <Text style={styles.message}>No customers yet. Add a customer to get started.</Text>
+          {!isLoading && !loadError && !filteredCustomers.length && (
+            <Text style={styles.message}>
+              {normalizedSearch
+                ? "No customers match your search."
+                : "No customers yet. Add a customer to get started."}
+            </Text>
           )}
         </View>
       </ScrollView>

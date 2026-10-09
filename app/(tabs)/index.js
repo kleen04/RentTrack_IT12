@@ -21,26 +21,26 @@ function formatCurrency(value) {
 
 function getRevenueChange(current, previous) {
   if (!previous) {
-    return current > 0 ? "Rental income recorded this month" : "No returned rentals recorded this month";
+    return current > 0 ? "Payments received this month" : "No payments received this month";
   }
   const difference = current - previous;
   const percentage = Math.round((Math.abs(difference) / previous) * 100);
   return `${difference >= 0 ? "↗" : "↘"} ${percentage}% vs last month`;
 }
 
-function getWeeklyRevenue(bookings, month) {
+function getWeeklyRevenue(payments, month) {
   const values = [0, 0, 0, 0, 0];
-  bookings.forEach((booking) => {
-    if (!booking.returnedAt) return;
-    const returnedAt = new Date(booking.returnedAt);
+  payments.forEach((payment) => {
+    if (!payment.paidAt) return;
+    const paidAt = new Date(payment.paidAt);
     if (
-      returnedAt.getFullYear() !== month.getFullYear() ||
-      returnedAt.getMonth() !== month.getMonth()
+      paidAt.getFullYear() !== month.getFullYear() ||
+      paidAt.getMonth() !== month.getMonth()
     ) {
       return;
     }
-    const weekIndex = Math.min(4, Math.floor((returnedAt.getDate() - 1) / 7));
-    values[weekIndex] += Number(booking.totalAmount || 0);
+    const weekIndex = Math.min(4, Math.floor((paidAt.getDate() - 1) / 7));
+    values[weekIndex] += Number(payment.amount || 0);
   });
   return values;
 }
@@ -76,7 +76,7 @@ export default function Overview() {
     let isActive = true;
     const subscription = addDatabaseChangeListener((event) => {
       if (
-        ["bookings", "customers", "rental_transactions"].includes(event.tableName)
+        ["bookings", "customers", "payments", "rental_transactions"].includes(event.tableName)
       ) {
         loadOverviewData();
       }
@@ -109,16 +109,16 @@ export default function Overview() {
   const totalBookingCount = liveBookings.length;
   const reservedCount = liveBookings.filter((booking) => booking.status === "RESERVED").length;
   const today = new Date();
-  const currentRevenue = (monthlyReport?.incomeBookings || []).reduce(
-    (total, booking) => total + Number(booking.totalAmount || 0),
+  const currentRevenue = (monthlyReport?.receivedPayments || []).reduce(
+    (total, payment) => total + Number(payment.amount || 0),
     0
   );
-  const previousRevenue = (monthlyReport?.previousIncomeBookings || []).reduce(
-    (total, booking) => total + Number(booking.totalAmount || 0),
+  const previousRevenue = (monthlyReport?.previousReceivedPayments || []).reduce(
+    (total, payment) => total + Number(payment.amount || 0),
     0
   );
   const weeklyRevenue = getWeeklyRevenue(
-    monthlyReport?.incomeBookings || [],
+    monthlyReport?.receivedPayments || [],
     today
   );
   const maxWeeklyRevenue = Math.max(...weeklyRevenue, 1);
@@ -163,7 +163,7 @@ export default function Overview() {
 
         <View style={styles.revenueCard}>
           <Text style={styles.revenueLabel}>
-            RENTAL INCOME • {today.toLocaleDateString("en-PH", { month: "long" }).toUpperCase()}
+            PAYMENTS RECEIVED • {today.toLocaleDateString("en-PH", { month: "long" }).toUpperCase()}
           </Text>
 
           <Text style={styles.revenueAmount}>

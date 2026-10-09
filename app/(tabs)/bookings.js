@@ -20,6 +20,7 @@ const FILTERS = ["All", "Pending", "Reserved", "Active", "Rejected", "Completed"
 
 export default function Bookings() {
   const [activeFilter, setActiveFilter] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
   const [liveBookings, setLiveBookings] = useState([]);
   const [loadError, setLoadError] = useState("");
   const db = useSQLiteContext();
@@ -78,14 +79,30 @@ export default function Bookings() {
     })),
   ];
 
-  const filteredBookings =
-    activeFilter === "All"
-      ? bookings
-      : bookings.filter(
-          (booking) =>
-            (booking.status || "").toUpperCase() ===
-            activeFilter.toUpperCase()
-        );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredBookings = bookings.filter((booking) => {
+    const matchesStatus =
+      activeFilter === "All" ||
+      (booking.status || "").toUpperCase() === activeFilter.toUpperCase();
+    const searchableText = [
+      booking.id,
+      booking.customer,
+      booking.vehicle,
+      booking.plate,
+      booking.start,
+      booking.end,
+      booking.total,
+      booking.status,
+      booking.destination,
+      booking.destinationKm,
+      booking.bookingChannel,
+      booking.remarks,
+    ]
+      .filter((value) => value !== null && value !== undefined)
+      .join(" ")
+      .toLowerCase();
+    return matchesStatus && searchableText.includes(normalizedSearch);
+  });
 
   const activeCount = bookings.filter((b) => b.status === "ACTIVE").length;
   const pendingCount = bookings.filter((b) => b.status === "PENDING").length;
@@ -135,7 +152,11 @@ export default function Bookings() {
           </View>
         </View>
 
-        <SearchBar placeholder="Search bookings" />
+        <SearchBar
+          placeholder="Search bookings"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
 
         {liveBookings.length > 0 && (
           <View style={styles.syncBanner}>
@@ -181,7 +202,9 @@ export default function Bookings() {
         ) : (
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
-              No {activeFilter.toLowerCase()} bookings
+              {normalizedSearch
+                ? "No bookings match your search."
+                : `No ${activeFilter.toLowerCase()} bookings`}
             </Text>
           </View>
         )}

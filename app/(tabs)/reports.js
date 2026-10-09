@@ -19,11 +19,18 @@ import { Colors } from "../../constants/colors";
 import { VEHICLE_IMAGES } from "../../constants/vehicleImages";
 import {
   getDateRangeReportRows,
+  getPaidPaymentReportRows,
   getMonthlyReportData,
   getVehicleUsageReportRows,
 } from "../../services/database";
 
-const REPORT_TABLES = new Set(["bookings", "vehicles", "customers", "rental_transactions"]);
+const REPORT_TABLES = new Set([
+  "bookings",
+  "customers",
+  "payments",
+  "rental_transactions",
+  "vehicles",
+]);
 const REPORT_TYPES = [
   { id: "income", label: "Income" },
   { id: "history", label: "Rental history" },
@@ -96,17 +103,17 @@ function changeLabel(current, previous, format = (value) => String(value)) {
   return `${difference > 0 ? "↑" : "↓"} ${percentage}% vs previous month`;
 }
 
-function getWeeklyRevenue(bookings, monthStart) {
+function getWeeklyRevenue(payments, monthStart) {
   const weeklyRevenue = [0, 0, 0, 0, 0];
-  completedBookings(bookings).forEach((booking) => {
-    if (!booking.returnedAt) return;
-    const returned = new Date(booking.returnedAt);
+  payments.forEach((payment) => {
+    if (!payment.paidAt) return;
+    const paidAt = new Date(payment.paidAt);
     if (
-      returned.getFullYear() === monthStart.getFullYear() &&
-      returned.getMonth() === monthStart.getMonth()
+      paidAt.getFullYear() === monthStart.getFullYear() &&
+      paidAt.getMonth() === monthStart.getMonth()
     ) {
-      const weekIndex = Math.min(4, Math.floor((returned.getDate() - 1) / 7));
-      weeklyRevenue[weekIndex] += Number(booking.totalAmount || 0);
+      const weekIndex = Math.min(4, Math.floor((paidAt.getDate() - 1) / 7));
+      weeklyRevenue[weekIndex] += Number(payment.amount || 0);
     }
   });
   return weeklyRevenue;
@@ -151,6 +158,7 @@ export default function Reports() {
   const [reportEndDate, setReportEndDate] = useState(() => dateInputValue(now));
   const [selectedReportType, setSelectedReportType] = useState("income");
   const [rangeRows, setRangeRows] = useState([]);
+  const [rangePayments, setRangePayments] = useState([]);
   const [usageRows, setUsageRows] = useState([]);
   const [rangeLoading, setRangeLoading] = useState(true);
   const [rangeError, setRangeError] = useState("");
@@ -201,13 +209,15 @@ export default function Reports() {
       endExclusive.setDate(endExclusive.getDate() + 1);
       setRangeLoading(true);
       try {
-        const [rows, vehicleRows] = await Promise.all([
+        const [rows, vehicleRows, paymentRows] = await Promise.all([
           getDateRangeReportRows(db, start, endExclusive),
           getVehicleUsageReportRows(db, start, endExclusive),
+          getPaidPaymentReportRows(db, start, endExclusive),
         ]);
         if (!isActive) return;
         setRangeRows(rows);
         setUsageRows(vehicleRows);
+        setRangePayments(paymentRows);
         setRangeError("");
       } catch (error) {
         if (isActive) setRangeError(error?.message || "The selected report could not be loaded.");
@@ -236,13 +246,23 @@ export default function Reports() {
   const bookings = currentData?.bookings || [];
   const incomeBookings = currentData?.incomeBookings || [];
   const previousIncomeBookings = currentData?.previousIncomeBookings || [];
-  const monthRevenue = completedRevenue(incomeBookings);
-  const previousRevenue = completedRevenue(previousIncomeBookings);
+  const receivedPayments = currentData?.receivedPayments || [];
+  const previousReceivedPayments = currentData?.previousReceivedPayments || [];
+  const monthRevenue = receivedPayments.reduce(
+    (total, payment) => total + Number(payment.amount || 0),
+    0
+  );
+  const previousRevenue = previousReceivedPayments.reduce(
+    (total, payment) => total + Number(payment.amount || 0),
+    0
+  );
+  const completedRentalRevenue = completedRevenue(incomeBookings);
   const completedCount = completedBookings(incomeBookings).length;
   const previousCompletedCount = completedBookings(previousIncomeBookings).length;
-  const averageBooking = completedCount ? monthRevenue / completedCount : 0;
+  const previousCompletedRentalRevenue = completedRevenue(previousIncomeBookings);
+  const averageBooking = completedCount ? completedRentalRevenue / completedCount : 0;
   const previousAverage =
-    previousCompletedCount ? previousRevenue / previousCompletedCount : 0;
+    previousCompletedCount ? previousCompletedRentalRevenue / previousCompletedCount : 0;
   const utilization = currentData
     ? calculateUtilization(
         currentData.utilizationBookings,
@@ -262,7 +282,7 @@ export default function Reports() {
         currentData.fleetCount
       )
     : 0;
-  const weeklyRevenue = getWeeklyRevenue(incomeBookings, selectedMonth);
+  const weeklyRevenue = getWeeklyRevenue(receivedPayments, selectedMonth);
   const maxWeeklyRevenue = Math.max(...weeklyRevenue, 1);
   const topPerformer = getTopPerformer(bookings);
   const monthlyRentalCount = bookings.filter((booking) =>
@@ -303,10 +323,12 @@ export default function Reports() {
   const completedRangeRows = rangeRows.filter((row) =>
     row.status === "COMPLETED" && isDateInRange(row.returnedAt)
   );
-  const reportRevenue = completedRangeRows.reduce(
-    (sum, row) => sum + Number(row.totalAmount || 0),
-    0
-  );
+  const reportRevenue = rangePayments
+    .filter((payment) => isDateInRange(payment.paidAt))
+    .reduce(
+      (sum, payment) => sum + Number(payment.amount || 0),
+      0
+    );
   const statusCounts = reservationRows.reduce((counts, row) => {
     counts[row.status] = (counts[row.status] || 0) + 1;
     return counts;
@@ -338,7 +360,7 @@ export default function Reports() {
   const showPrintPreview = () => {
     const heading = REPORT_TYPES.find((type) => type.id === selectedReportType)?.label || "Report";
     const summary = selectedReportType === "income"
-      ? `${formatCurrency(reportRevenue)} recognized from ${completedRangeRows.length} returned rentals.`
+      ? `${formatCurrency(reportRevenue)} received from successful payments.`
       : selectedReportType === "history"
         ? `${transactionRows.length} rental transactions, including ${completedRangeRows.length} returns.`
         : selectedReportType === "reservations"
@@ -436,8 +458,8 @@ export default function Reports() {
             <View style={styles.revenueCard}>
               <View style={styles.revenueHeader}>
                 <View>
-                  <Text style={styles.revenueLabel}>COMPLETED RENTAL REVENUE</Text>
-                  <Text style={styles.revenueHint}>Counted when the return is recorded</Text>
+                  <Text style={styles.revenueLabel}>PAYMENTS RECEIVED</Text>
+                  <Text style={styles.revenueHint}>Counted when a payment is recorded</Text>
                 </View>
                 <View style={styles.revenueIcon}>
                   <Ionicons name="trending-up-outline" size={19} color={Colors.primary} />
@@ -451,7 +473,7 @@ export default function Reports() {
               <View style={styles.chartDivider} />
               <View style={styles.chartHeading}>
                 <Text style={styles.chartTitle}>WEEKLY REVENUE</Text>
-                <Text style={styles.chartUnit}>COMPLETED RENTALS</Text>
+                <Text style={styles.chartUnit}>PAYMENTS RECEIVED</Text>
               </View>
               <View style={styles.chartRow}>
                 {weeklyRevenue.map((amount, index) => {
@@ -473,7 +495,7 @@ export default function Reports() {
               </View>
               {!monthRevenue && (
                 <Text style={styles.chartEmpty}>
-                  No completed rental revenue recorded for this month.
+                  No payments were received this month.
                 </Text>
               )}
             </View>
@@ -643,14 +665,17 @@ export default function Reports() {
                 <View style={styles.rangeReportBody}>
                   {selectedReportType === "income" ? (
                     <>
-                      <ReportMetric label="INCOME FROM RETURNED RENTALS" value={formatCurrency(reportRevenue)} />
+                      <ReportMetric label="PAYMENTS RECEIVED" value={formatCurrency(reportRevenue)} />
                       {["Car", "Motorcycle"].map((type) => {
-                        const amount = completedRangeRows
-                          .filter((row) => row.vehicleType?.toLowerCase() === type.toLowerCase())
-                          .reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
+                        const amount = rangePayments
+                          .filter((payment) =>
+                            isDateInRange(payment.paidAt) &&
+                            payment.vehicleType?.toLowerCase() === type.toLowerCase()
+                          )
+                          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
                         return <ReportMetric key={type} label={type.toUpperCase()} value={formatCurrency(amount)} />;
                       })}
-                      <Text style={styles.reportHint}>Income is counted when a vehicle return is recorded.</Text>
+                      <Text style={styles.reportHint}>Only successful payments recorded in this date range are included.</Text>
                     </>
                   ) : null}
                   {selectedReportType === "history" ? (
